@@ -26,7 +26,7 @@
 
     body {
       margin: 0;
-      font-family: Inter, Arial, sans-serif;
+      font-family: Arial, sans-serif;
       background: linear-gradient(180deg, #070a0f 0%, #0b0f14 100%);
       color: var(--text);
       padding: 32px;
@@ -105,6 +105,10 @@
 
     .status.error {
       color: var(--red);
+    }
+
+    .status.warning {
+      color: var(--accent);
     }
 
     .cards {
@@ -246,7 +250,7 @@
       </div>
 
       <div class="actions">
-        <button class="btn-refresh" id="checkBtn" onclick="checkBalances()">
+        <button class="btn-refresh" id="checkBtn" onclick="checkBalances(false)">
           Refresh
         </button>
 
@@ -281,7 +285,7 @@
     </section>
 
     <div id="emptyMessage" class="empty" style="display:none;">
-      No wallets above the selected threshold.
+      No wallets above $50,000 right now.
     </div>
 
     <section id="tableWrap" class="table-wrap" style="display:none;">
@@ -301,7 +305,7 @@
     </section>
 
     <div class="footer-note">
-      Data updates when you open the page or click Refresh.
+      Tip: do not press Refresh many times in a row. Public TronGrid can temporarily rate-limit requests.
     </div>
   </main>
 
@@ -323,7 +327,17 @@
 
     const USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 
+    const REQUEST_DELAY_MS = 1200;
+    const REFRESH_COOLDOWN_MS = 60000;
+    const CACHE_KEY = "tron_watchlist_last_result_v1";
+
     let validAddresses = [];
+    let isChecking = false;
+    let lastManualRefreshTime = 0;
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
 
     function extractAddress(text) {
       const match = text.match(/T[A-Za-z0-9]{33}/);
@@ -351,14 +365,30 @@
       if (type) status.classList.add(type);
     }
 
-    async function getPrices() {
-      const url = "https://api.coingecko.com/api/v3/simple/price?ids=tron,tether&vs_currencies=usd";
-      const response = await fetch(url);
+    async function fetchWithRetry(url, options = {}, retries = 3) {
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        const response = await fetch(url, options);
 
-      if (!response.ok) {
-        throw new Error("Price request failed.");
+        if (response.status === 429) {
+          const waitTime = attempt * 3000;
+          console.warn(`Rate limited. Waiting ${waitTime}ms before retry ${attempt}/${retries}`);
+          await sleep(waitTime);
+          continue;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+
+        return response;
       }
 
+      throw new Error("Rate limit. Try again later.");
+    }
+
+    async function getPrices() {
+      const url = "https://api.coingecko.com/api/v3/simple/price?ids=tron,tether&vs_currencies=usd";
+      const response = await fetchWithRetry(url, {}, 3);
       const data = await response.json();
 
       return {
@@ -369,16 +399,14 @@
 
     async function getWalletFromTronGrid(address) {
       const url = `https://api.trongrid.io/v1/accounts/${address}`;
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error("TronGrid request failed.");
-      }
-
+      const response = await fetchWithRetry(url, {}, 3);
       const data = await response.json();
 
       if (!data.data || data.data.length === 0) {
-        return { trx: 0, usdt: 0 };
+        return {
+          trx: 0,
+          usdt: 0
+        };
       }
 
       const account = data.data[0];
@@ -396,90 +424,118 @@
         }
       }
 
-      return { trx, usdt };
+      return {
+        trx,
+        usdt
+      };
     }
 
-    async function getWalletFromTronScan(address) {
-      const url = `https://apilist.tronscanapi.com/api/account?address=${address}`;
-      const response = await fetch(url);
+    function getSavedAddresses() {
+      let addresses = WATCHED_ADDRESSES
+        .map(item => extractAddress(item))
+        .filter(Boolean);
 
-      if (!response.ok) {
-        throw new Error("TronScan request failed.");
-      }
+      addresses = [...new Set(addresses)];
 
-      const data = await response.json();
+      return addresses;
+    }
 
-      const trx = data.balance ? Number(data.balance) / 1_000_000 : 0;
+    function renderResults(payload, fromCache = false) {
+      const cards = document.getElementById("cards");
+      const tableWrap = document.getElementById("tableWrap");
+      const emptyMessage = document.getElementById("emptyMessage");
+      const tbody = document.getElementById("results");
+      const copyBtn = document.getElementById("copyBtn");
 
-      let usdt = 0;
+      tbody.innerHTML = "";
+      validAddresses = [];
 
-      const tokenLists = [
-        data.trc20token_balances,
-        data.tokenBalances,
-        data.tokens
-      ];
+      const rows = payload.rows || [];
 
-      for (const list of tokenLists) {
-        if (!Array.isArray(list)) continue;
+      document.getElementById("matchedCount").textContent = rows.length;
+      document.getElementById("totalValue").textContent = formatUsd(payload.totalVisibleUsd || 0);
+      document.getElementById("trxPrice").textContent = formatUsd(payload.trxPrice || 0);
+      document.getElementById("checkedCount").textContent = payload.checkedCount || 0;
 
-        for (const token of list) {
-          const tokenAddress =
-            token.tokenId ||
-            token.contract_address ||
-            token.contractAddress ||
-            token.tokenAddress;
+      cards.style.display = "grid";
 
-          const tokenSymbol =
-            token.tokenAbbr ||
-            token.symbol ||
-            token.tokenName;
+      if (rows.length === 0) {
+        tableWrap.style.display = "none";
+        emptyMessage.style.display = "block";
+        copyBtn.disabled = true;
+      } else {
+        emptyMessage.style.display = "none";
+        tableWrap.style.display = "block";
+        copyBtn.disabled = false;
 
-          if (tokenAddress === USDT_CONTRACT || tokenSymbol === "USDT") {
-            const rawBalance =
-              token.balance ||
-              token.amount ||
-              token.quantity ||
-              0;
+        for (const item of rows) {
+          validAddresses.push(item.address);
 
-            const decimals =
-              token.tokenDecimal !== undefined
-                ? Number(token.tokenDecimal)
-                : token.decimals !== undefined
-                  ? Number(token.decimals)
-                  : 6;
+          const row = document.createElement("tr");
 
-            usdt = Number(rawBalance) / Math.pow(10, decimals);
-            break;
-          }
+          row.innerHTML = `
+            <td>
+              <a href="https://tronscan.org/#/address/${item.address}" target="_blank">
+                ${item.address}
+              </a>
+            </td>
+            <td>${formatToken(item.trx)}</td>
+            <td>${formatUsd(item.trxUsd)}</td>
+            <td>${formatToken(item.usdt)}</td>
+            <td>${formatUsd(item.usdtUsd)}</td>
+            <td class="money">${formatUsd(item.totalUsd)}</td>
+          `;
+
+          tbody.appendChild(row);
         }
-
-        if (usdt > 0) break;
       }
 
-      return { trx, usdt };
+      if (fromCache) {
+        setStatus("Showing last saved result. Refresh later if TronGrid is rate-limiting.", "warning");
+      }
     }
 
-    async function getWalletBalance(address) {
+    function saveCache(payload) {
       try {
-        const tronGridData = await getWalletFromTronGrid(address);
-
-        if (tronGridData.trx > 0 || tronGridData.usdt > 0) {
-          return tronGridData;
-        }
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+          savedAt: Date.now(),
+          payload
+        }));
       } catch (error) {
-        console.warn("TronGrid failed:", address, error);
+        console.warn("Could not save cache:", error);
       }
-
-      try {
-        return await getWalletFromTronScan(address);
-      } catch (error) {
-        console.warn("TronScan failed:", address, error);
-      }
-
-      return { trx: 0, usdt: 0 };
     }
 
-    async function checkBalances() {
+    function loadCache() {
+      try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (!raw) return null;
+
+        const parsed = JSON.parse(raw);
+        return parsed.payload || null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    async function checkBalances(isInitialLoad = false) {
+      if (isChecking) {
+        setStatus("Already checking. Please wait.", "warning");
+        return;
+      }
+
+      const now = Date.now();
+
+      if (!isInitialLoad && now - lastManualRefreshTime < REFRESH_COOLDOWN_MS) {
+        const secondsLeft = Math.ceil((REFRESH_COOLDOWN_MS - (now - lastManualRefreshTime)) / 1000);
+        setStatus(`Please wait ${secondsLeft}s before refreshing again.`, "warning");
+        return;
+      }
+
+      if (!isInitialLoad) {
+        lastManualRefreshTime = now;
+      }
+
       const checkBtn = document.getElementById("checkBtn");
       const copyBtn = document.getElementById("copyBtn");
       const cards = document.getElementById("cards");
@@ -487,6 +543,7 @@
       const emptyMessage = document.getElementById("emptyMessage");
       const tbody = document.getElementById("results");
 
+      isChecking = true;
       checkBtn.disabled = true;
       copyBtn.disabled = true;
 
@@ -498,82 +555,93 @@
       emptyMessage.style.display = "none";
 
       try {
-        let addresses = WATCHED_ADDRESSES
-          .map(item => extractAddress(item))
-          .filter(Boolean);
-
-        addresses = [...new Set(addresses)];
+        const addresses = getSavedAddresses();
 
         if (addresses.length === 0) {
           setStatus("No valid addresses.", "error");
           return;
         }
 
-        setStatus("Updating balances...");
+        if (addresses.length > 10) {
+          setStatus("Too many addresses. Keep max 10.", "error");
+          return;
+        }
 
+        setStatus("Loading prices...");
         const prices = await getPrices();
 
-        let visibleCount = 0;
+        const rows = [];
         let checkedCount = 0;
+        let failedCount = 0;
         let totalVisibleUsd = 0;
 
         for (const address of addresses) {
           checkedCount++;
           setStatus(`Checking ${checkedCount}/${addresses.length}`);
 
-          const wallet = await getWalletBalance(address);
+          try {
+            const wallet = await getWalletFromTronGrid(address);
 
-          const trx = wallet.trx;
-          const usdt = wallet.usdt;
+            const trx = wallet.trx;
+            const usdt = wallet.usdt;
 
-          const trxUsd = trx * prices.trx;
-          const usdtUsd = usdt * prices.usdt;
-          const totalUsd = trxUsd + usdtUsd;
+            const trxUsd = trx * prices.trx;
+            const usdtUsd = usdt * prices.usdt;
+            const totalUsd = trxUsd + usdtUsd;
 
-          if (totalUsd > MIN_TOTAL_USD) {
-            visibleCount++;
-            totalVisibleUsd += totalUsd;
-            validAddresses.push(address);
+            if (totalUsd > MIN_TOTAL_USD) {
+              totalVisibleUsd += totalUsd;
 
-            const row = document.createElement("tr");
-
-            row.innerHTML = `
-              <td>
-                <a href="https://tronscan.org/#/address/${address}" target="_blank">
-                  ${address}
-                </a>
-              </td>
-              <td>${formatToken(trx)}</td>
-              <td>${formatUsd(trxUsd)}</td>
-              <td>${formatToken(usdt)}</td>
-              <td>${formatUsd(usdtUsd)}</td>
-              <td class="money">${formatUsd(totalUsd)}</td>
-            `;
-
-            tbody.appendChild(row);
+              rows.push({
+                address,
+                trx,
+                trxUsd,
+                usdt,
+                usdtUsd,
+                totalUsd
+              });
+            }
+          } catch (error) {
+            failedCount++;
+            console.warn("Failed address:", address, error);
           }
+
+          await sleep(REQUEST_DELAY_MS);
         }
 
-        document.getElementById("matchedCount").textContent = visibleCount;
-        document.getElementById("totalValue").textContent = formatUsd(totalVisibleUsd);
-        document.getElementById("trxPrice").textContent = formatUsd(prices.trx);
-        document.getElementById("checkedCount").textContent = checkedCount;
+        rows.sort((a, b) => b.totalUsd - a.totalUsd);
 
-        cards.style.display = "grid";
+        const payload = {
+          rows,
+          checkedCount,
+          failedCount,
+          totalVisibleUsd,
+          trxPrice: prices.trx,
+          usdtPrice: prices.usdt,
+          updatedAt: Date.now()
+        };
 
-        if (visibleCount > 0) {
-          tableWrap.style.display = "block";
-          copyBtn.disabled = false;
+        renderResults(payload, false);
+        saveCache(payload);
+
+        if (failedCount > 0) {
+          setStatus(`Updated with ${failedCount} failed request(s). Try again later if something is missing.`, "warning");
         } else {
-          emptyMessage.style.display = "block";
+          setStatus("Updated.", "success");
         }
-
-        setStatus("Updated.", "success");
 
       } catch (error) {
         console.error(error);
-        setStatus(error.message || "Something went wrong.", "error");
+
+        const cachedPayload = loadCache();
+
+        if (cachedPayload) {
+          renderResults(cachedPayload, true);
+        } else {
+          setStatus(error.message || "Something went wrong.", "error");
+        }
       } finally {
+        isChecking = false;
         checkBtn.disabled = false;
       }
     }
@@ -592,7 +660,7 @@
       }
     }
 
-    window.addEventListener("load", checkBalances);
+    window.addEventListener("load", () => checkBalances(true));
   </script>
 </body>
 </html>
