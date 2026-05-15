@@ -100,13 +100,12 @@
     <tbody id="results"></tbody>
   </table>
 
-  <script src="https://cdn.jsdelivr.net/npm/tronweb/dist/TronWeb.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.2/dist/TronWeb.js"></script>
 
   <script>
-    const MIN_TOTAL_USD = 0;
+    const MIN_TOTAL_USD = 50000;
 
-    // Put your real 10 addresses here.
-    // You can use plain TRON addresses or TronScan links.
+
     const WATCHED_ADDRESSES = [
       "TCw2NHiW2krQv6r7d3jyCuoWPZgsci4p9E",
       "TQVJdnPiyqZqp4cBy445jofu66a99C2SAZ",
@@ -122,8 +121,10 @@
 
     const USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 
-    const tronWeb = new TronWeb({
-      fullHost: "https://api.trongrid.io"
+    const TronWebClass = window.TronWeb.default || window.TronWeb;
+
+    const tronWeb = new TronWebClass({
+    fullHost: "https://api.trongrid.io"
     });
 
     function extractAddress(text) {
