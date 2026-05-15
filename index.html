@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TRON High Balance Checker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      padding: 30px;
+    }
+
+    h1 {
+      color: #f59e0b;
+    }
+
+    button {
+      margin-top: 15px;
+      padding: 12px 20px;
+      background: #10b981;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 25px;
+      background: #161b22;
+    }
+
+    th, td {
+      border: 1px solid #30363d;
+      padding: 10px;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    th {
+      background: #21262d;
+      color: #f59e0b;
+    }
+
+    .small {
+      color: #8b949e;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    .empty {
+      margin-top: 25px;
+      padding: 15px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      color: #8b949e;
+    }
+
+    .error {
+      color: #ef4444;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>TRON Wallets Over $50,000</h1>
+
+  <p>This page checks saved TRON addresses automatically and shows only wallets with total value over $50,000.</p>
+
+  <button id="checkBtn" onclick="checkBalances()">Refresh balances</button>
+
+  <p class="small" id="status">Loading...</p>
+
+  <div id="emptyMessage" class="empty" style="display:none;">
+    No saved wallet currently has more than $50,000.
+  </div>
+
+  <table id="resultTable" style="display:none;">
+    <thead>
+      <tr>
+        <th>Address</th>
+        <th>TRX</th>
+        <th>TRX USD</th>
+        <th>USDT</th>
+        <th>USDT USD</th>
+        <th>Total USD</th>
+      </tr>
+    </thead>
+    <tbody id="results"></tbody>
+  </table>
+
+  <script src="https://cdn.jsdelivr.net/npm/tronweb/dist/TronWeb.js"></script>
+
+  <script>
+    const MIN_TOTAL_USD = 50000;
+
+    // Put your real 10 addresses here.
+    // You can use plain TRON addresses or TronScan links.
+    const WATCHED_ADDRESSES = [
+      "TGiYXbNiJmmTFQ4hPfRQDBQRZ7Skanq7us",
+      "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    ];
+
+    const USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+
+    const tronWeb = new TronWeb({
+      fullHost: "https://api.trongrid.io"
+    });
+
+    function extractAddress(text) {
+      const match = text.match(/T[A-Za-z0-9]{33}/);
+      return match ? match[0] : null;
+    }
+
+    async function getPrices() {
+      const url = "https://api.coingecko.com/api/v3/simple/price?ids=tron,tether&vs_currencies=usd";
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error("Cannot load prices from CoinGecko");
+      }
+
+      const data = await response.json();
+
+      return {
+        trx: Number(data.tron.usd),
+        usdt: Number(data.tether.usd)
+      };
+    }
+
+    async function checkBalances() {
+      const button = document.getElementById("checkBtn");
+      const status = document.getElementById("status");
+      const tbody = document.getElementById("results");
+      const table = document.getElementById("resultTable");
+      const emptyMessage = document.getElementById("emptyMessage");
+
+      button.disabled = true;
+      status.textContent = "Checking balances...";
+      tbody.innerHTML = "";
+      table.style.display = "none";
+      emptyMessage.style.display = "none";
+
+      try {
+        let addresses = WATCHED_ADDRESSES
+          .map(item => extractAddress(item))
+          .filter(Boolean);
+
+        addresses = [...new Set(addresses)];
+
+        if (addresses.length === 0) {
+          status.textContent = "No valid saved TRON addresses.";
+          button.disabled = false;
+          return;
+        }
+
+        if (addresses.length > 10) {
+          status.textContent = "Too many addresses. Please keep max 10.";
+          button.disabled = false;
+          return;
+        }
+
+        const prices = await getPrices();
+        const usdtContract = await tronWeb.contract().at(USDT_CONTRACT);
+
+        let visibleCount = 0;
+
+        for (const address of addresses) {
+          try {
+            const trxSun = await tronWeb.trx.getBalance(address);
+            const trx = Number(trxSun) / 1_000_000;
+
+            const usdtRaw = await usdtContract.balanceOf(address).call();
+            const usdt = Number(usdtRaw.toString()) / 1_000_000;
+
+            const trxUsd = trx * prices.trx;
+            const usdtUsd = usdt * prices.usdt;
+            const totalUsd = trxUsd + usdtUsd;
+
+            // Show only wallets over $50,000
+            if (totalUsd > MIN_TOTAL_USD) {
+              visibleCount++;
+
+              const row = document.createElement("tr");
+
+              row.innerHTML = `
+                <td>
+                  <a href="https://tronscan.org/#/address/${address}" target="_blank" style="color:#60a5fa;">
+                    ${address}
+                  </a>
+                </td>
+                <td>${trx.toFixed(6)}</td>
+                <td>$${trxUsd.toFixed(2)}</td>
+                <td>${usdt.toFixed(6)}</td>
+                <td>$${usdtUsd.toFixed(2)}</td>
+                <td><strong>$${totalUsd.toFixed(2)}</strong></td>
+              `;
+
+              tbody.appendChild(row);
+            }
+          } catch (error) {
+            console.error("Error checking address:", address, error);
+          }
+        }
+
+        if (visibleCount > 0) {
+          table.style.display = "table";
+          status.textContent = `Done. Found ${visibleCount} wallet(s) over $${MIN_TOTAL_USD.toLocaleString()}.`;
+        } else {
+          emptyMessage.style.display = "block";
+          status.textContent = "Done.";
+        }
+
+      } catch (error) {
+        status.innerHTML = `<span class="error">${error.message}</span>`;
+      }
+
+      button.disabled = false;
+    }
+
+    // Auto-check when page loads
+    window.addEventListener("load", checkBalances);
+  </script>
+</body>
+</html>
