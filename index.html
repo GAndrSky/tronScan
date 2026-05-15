@@ -2,68 +2,172 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>TRON Wallets Over $50,000</title>
+  <title>TRON Watchlist</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #111821;
+      --panel-soft: #151e2a;
+      --border: #263241;
+      --text: #e8eef7;
+      --muted: #8c9bab;
+      --accent: #f6a313;
+      --green: #10b981;
+      --blue: #2563eb;
+      --red: #ef4444;
+      --row-hover: #1b2634;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: Arial, sans-serif;
-      background: #0d1117;
-      color: #e6edf3;
-      padding: 30px;
+      margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: linear-gradient(180deg, #070a0f 0%, #0b0f14 100%);
+      color: var(--text);
+      padding: 32px;
     }
 
-    h1 {
-      color: #f59e0b;
-      margin-bottom: 10px;
+    .app {
+      max-width: 1280px;
+      margin: 0 auto;
     }
 
-    p {
-      line-height: 1.5;
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+
+    .title-block h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+      letter-spacing: -0.03em;
+      color: var(--accent);
+    }
+
+    .title-block p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
     }
 
     button {
-      margin-top: 15px;
-      margin-right: 10px;
-      padding: 12px 20px;
-      background: #10b981;
-      color: white;
       border: none;
-      border-radius: 8px;
-      font-size: 16px;
+      border-radius: 10px;
+      padding: 12px 18px;
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
       cursor: pointer;
+      transition: 0.15s ease;
     }
 
     button:hover:not(:disabled) {
-      opacity: 0.9;
+      transform: translateY(-1px);
+      opacity: 0.92;
     }
 
     button:disabled {
-      background: #555;
+      opacity: 0.45;
       cursor: not-allowed;
     }
 
-    #copyBtn {
-      background: #60a5fa;
+    .btn-refresh {
+      background: var(--green);
+    }
+
+    .btn-copy {
+      background: var(--blue);
+    }
+
+    .status {
+      margin-bottom: 18px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .status.success {
+      color: var(--green);
+    }
+
+    .status.error {
+      color: var(--red);
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+    }
+
+    .card-label {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+
+    .card-value {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .table-wrap {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 25px;
-      background: #161b22;
-    }
-
-    th, td {
-      border: 1px solid #30363d;
-      padding: 10px;
-      text-align: left;
-      font-size: 14px;
     }
 
     th {
-      background: #21262d;
-      color: #f59e0b;
+      background: var(--panel-soft);
+      color: var(--muted);
+      text-align: left;
+      padding: 14px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    tr:hover td {
+      background: var(--row-hover);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
     }
 
     a {
@@ -75,77 +179,134 @@
       text-decoration: underline;
     }
 
-    .small {
-      color: #8b949e;
-      font-size: 13px;
-      margin-top: 15px;
+    .money {
+      font-weight: 700;
+      color: #ffffff;
     }
 
     .empty {
-      margin-top: 25px;
-      padding: 15px;
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      color: #8b949e;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      color: var(--muted);
+      text-align: center;
     }
 
-    .error {
-      color: #ef4444;
+    .footer-note {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 12px;
     }
 
-    .success {
-      color: #10b981;
+    @media (max-width: 900px) {
+      body {
+        padding: 20px;
+      }
+
+      .header {
+        flex-direction: column;
+      }
+
+      .cards {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
     }
 
-    .summary {
-      margin-top: 20px;
-      padding: 15px;
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
+    @media (max-width: 520px) {
+      .cards {
+        grid-template-columns: 1fr;
+      }
+
+      .title-block h1 {
+        font-size: 26px;
+      }
+
+      button {
+        width: 100%;
+      }
+
+      .actions {
+        width: 100%;
+      }
     }
   </style>
 </head>
 
 <body>
-  <h1>TRON Wallets Over $50,000</h1>
+  <main class="app">
+    <section class="header">
+      <div class="title-block">
+        <h1>TRON Watchlist</h1>
+        <p>Wallets with TRX + USDT balance above $50,000</p>
+      </div>
 
-  <p>
-    This page checks saved TRON addresses automatically and shows only wallets
-    with total value over $50,000.
-  </p>
+      <div class="actions">
+        <button class="btn-refresh" id="checkBtn" onclick="checkBalances()">
+          Refresh
+        </button>
 
-  <button id="checkBtn" onclick="checkBalances()">Refresh balances</button>
+        <button class="btn-copy" id="copyBtn" onclick="copyValidAddresses()" disabled>
+          Copy addresses
+        </button>
+      </div>
+    </section>
 
-  <button id="copyBtn" onclick="copyValidAddresses()" disabled>
-    Copy valid addresses
-  </button>
+    <div id="status" class="status">Loading...</div>
 
-  <p class="small" id="status">Loading...</p>
+    <section id="cards" class="cards" style="display:none;">
+      <div class="card">
+        <div class="card-label">Matched wallets</div>
+        <div class="card-value" id="matchedCount">0</div>
+      </div>
 
-  <div id="summaryBox" class="summary" style="display:none;"></div>
+      <div class="card">
+        <div class="card-label">Total shown value</div>
+        <div class="card-value" id="totalValue">$0.00</div>
+      </div>
 
-  <div id="emptyMessage" class="empty" style="display:none;">
-    No saved wallet currently has more than $50,000.
-  </div>
+      <div class="card">
+        <div class="card-label">TRX price</div>
+        <div class="card-value" id="trxPrice">$0.00</div>
+      </div>
 
-  <table id="resultTable" style="display:none;">
-    <thead>
-      <tr>
-        <th>Address</th>
-        <th>TRX</th>
-        <th>TRX USD</th>
-        <th>USDT</th>
-        <th>USDT USD</th>
-        <th>Total USD</th>
-      </tr>
-    </thead>
-    <tbody id="results"></tbody>
-  </table>
+      <div class="card">
+        <div class="card-label">Checked addresses</div>
+        <div class="card-value" id="checkedCount">0</div>
+      </div>
+    </section>
+
+    <div id="emptyMessage" class="empty" style="display:none;">
+      No wallets above the selected threshold.
+    </div>
+
+    <section id="tableWrap" class="table-wrap" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>Address</th>
+            <th>TRX</th>
+            <th>TRX USD</th>
+            <th>USDT</th>
+            <th>USDT USD</th>
+            <th>Total USD</th>
+          </tr>
+        </thead>
+        <tbody id="results"></tbody>
+      </table>
+    </section>
+
+    <div class="footer-note">
+      Data updates when you open the page or click Refresh.
+    </div>
+  </main>
 
   <script>
-    const MIN_TOTAL_USD = 0;
+    const MIN_TOTAL_USD = 50000;
 
     const WATCHED_ADDRESSES = [
       "TCw2NHiW2krQv6r7d3jyCuoWPZgsci4p9E",
@@ -159,7 +320,6 @@
       "TSBTdYkJoBiq3LpoTykKdvm2XpKHqTPFyg",
       "TSMyMBSmnXoTDxDtaXiYGFZRLFXbHD5qV8"
     ];
-
 
     const USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 
@@ -184,13 +344,19 @@
       });
     }
 
+    function setStatus(message, type = "") {
+      const status = document.getElementById("status");
+      status.textContent = message;
+      status.className = "status";
+      if (type) status.classList.add(type);
+    }
+
     async function getPrices() {
       const url = "https://api.coingecko.com/api/v3/simple/price?ids=tron,tether&vs_currencies=usd";
-
       const response = await fetch(url);
 
       if (!response.ok) {
-        throw new Error("Cannot load prices from CoinGecko.");
+        throw new Error("Price request failed.");
       }
 
       const data = await response.json();
@@ -212,10 +378,7 @@
       const data = await response.json();
 
       if (!data.data || data.data.length === 0) {
-        return {
-          trx: 0,
-          usdt: 0
-        };
+        return { trx: 0, usdt: 0 };
       }
 
       const account = data.data[0];
@@ -233,10 +396,7 @@
         }
       }
 
-      return {
-        trx,
-        usdt
-      };
+      return { trx, usdt };
     }
 
     async function getWalletFromTronScan(address) {
@@ -274,10 +434,7 @@
             token.symbol ||
             token.tokenName;
 
-          if (
-            tokenAddress === USDT_CONTRACT ||
-            tokenSymbol === "USDT"
-          ) {
+          if (tokenAddress === USDT_CONTRACT || tokenSymbol === "USDT") {
             const rawBalance =
               token.balance ||
               token.amount ||
@@ -299,58 +456,46 @@
         if (usdt > 0) break;
       }
 
-      return {
-        trx,
-        usdt
-      };
+      return { trx, usdt };
     }
 
     async function getWalletBalance(address) {
-      /*
-        First we try TronGrid.
-        If TronGrid does not return USDT correctly, we try TronScan as fallback.
-      */
-
       try {
         const tronGridData = await getWalletFromTronGrid(address);
 
-        if (tronGridData.usdt > 0 || tronGridData.trx > 0) {
+        if (tronGridData.trx > 0 || tronGridData.usdt > 0) {
           return tronGridData;
         }
       } catch (error) {
-        console.warn("TronGrid failed for", address, error);
+        console.warn("TronGrid failed:", address, error);
       }
 
       try {
-        const tronScanData = await getWalletFromTronScan(address);
-        return tronScanData;
+        return await getWalletFromTronScan(address);
       } catch (error) {
-        console.warn("TronScan failed for", address, error);
+        console.warn("TronScan failed:", address, error);
       }
 
-      throw new Error("Could not load wallet data.");
+      return { trx: 0, usdt: 0 };
     }
 
     async function checkBalances() {
-      const button = document.getElementById("checkBtn");
-      const copyButton = document.getElementById("copyBtn");
-      const status = document.getElementById("status");
-      const tbody = document.getElementById("results");
-      const table = document.getElementById("resultTable");
+      const checkBtn = document.getElementById("checkBtn");
+      const copyBtn = document.getElementById("copyBtn");
+      const cards = document.getElementById("cards");
+      const tableWrap = document.getElementById("tableWrap");
       const emptyMessage = document.getElementById("emptyMessage");
-      const summaryBox = document.getElementById("summaryBox");
+      const tbody = document.getElementById("results");
 
-      button.disabled = true;
-      copyButton.disabled = true;
-
-      status.textContent = "Checking balances...";
-      tbody.innerHTML = "";
-      table.style.display = "none";
-      emptyMessage.style.display = "none";
-      summaryBox.style.display = "none";
-      summaryBox.innerHTML = "";
+      checkBtn.disabled = true;
+      copyBtn.disabled = true;
 
       validAddresses = [];
+      tbody.innerHTML = "";
+
+      cards.style.display = "none";
+      tableWrap.style.display = "none";
+      emptyMessage.style.display = "none";
 
       try {
         let addresses = WATCHED_ADDRESSES
@@ -359,19 +504,12 @@
 
         addresses = [...new Set(addresses)];
 
-        console.log("Found addresses:", addresses);
-
         if (addresses.length === 0) {
-          status.innerHTML = `<span class="error">No valid saved TRON addresses.</span>`;
-          button.disabled = false;
+          setStatus("No valid addresses.", "error");
           return;
         }
 
-        if (addresses.length > 10) {
-          status.innerHTML = `<span class="error">Too many addresses. Please keep max 10.</span>`;
-          button.disabled = false;
-          return;
-        }
+        setStatus("Updating balances...");
 
         const prices = await getPrices();
 
@@ -381,107 +519,76 @@
 
         for (const address of addresses) {
           checkedCount++;
+          setStatus(`Checking ${checkedCount}/${addresses.length}`);
 
-          try {
-            status.textContent = `Checking ${checkedCount}/${addresses.length}: ${address}`;
+          const wallet = await getWalletBalance(address);
 
-            const wallet = await getWalletBalance(address);
+          const trx = wallet.trx;
+          const usdt = wallet.usdt;
 
-            const trx = wallet.trx;
-            const usdt = wallet.usdt;
+          const trxUsd = trx * prices.trx;
+          const usdtUsd = usdt * prices.usdt;
+          const totalUsd = trxUsd + usdtUsd;
 
-            const trxUsd = trx * prices.trx;
-            const usdtUsd = usdt * prices.usdt;
-            const totalUsd = trxUsd + usdtUsd;
+          if (totalUsd > MIN_TOTAL_USD) {
+            visibleCount++;
+            totalVisibleUsd += totalUsd;
+            validAddresses.push(address);
 
-            console.log(address, {
-              trx,
-              usdt,
-              trxUsd,
-              usdtUsd,
-              totalUsd
-            });
+            const row = document.createElement("tr");
 
-            if (totalUsd > MIN_TOTAL_USD) {
-              visibleCount++;
-              totalVisibleUsd += totalUsd;
-              validAddresses.push(address);
+            row.innerHTML = `
+              <td>
+                <a href="https://tronscan.org/#/address/${address}" target="_blank">
+                  ${address}
+                </a>
+              </td>
+              <td>${formatToken(trx)}</td>
+              <td>${formatUsd(trxUsd)}</td>
+              <td>${formatToken(usdt)}</td>
+              <td>${formatUsd(usdtUsd)}</td>
+              <td class="money">${formatUsd(totalUsd)}</td>
+            `;
 
-              const row = document.createElement("tr");
-
-              row.innerHTML = `
-                <td>
-                  <a href="https://tronscan.org/#/address/${address}" target="_blank">
-                    ${address}
-                  </a>
-                </td>
-                <td>${formatToken(trx)}</td>
-                <td>${formatUsd(trxUsd)}</td>
-                <td>${formatToken(usdt)}</td>
-                <td>${formatUsd(usdtUsd)}</td>
-                <td><strong>${formatUsd(totalUsd)}</strong></td>
-              `;
-
-              tbody.appendChild(row);
-            }
-
-          } catch (error) {
-            console.error("Error checking address:", address, error);
+            tbody.appendChild(row);
           }
         }
 
+        document.getElementById("matchedCount").textContent = visibleCount;
+        document.getElementById("totalValue").textContent = formatUsd(totalVisibleUsd);
+        document.getElementById("trxPrice").textContent = formatUsd(prices.trx);
+        document.getElementById("checkedCount").textContent = checkedCount;
+
+        cards.style.display = "grid";
+
         if (visibleCount > 0) {
-          table.style.display = "table";
-          copyButton.disabled = false;
-
-          summaryBox.style.display = "block";
-          summaryBox.innerHTML = `
-            <strong>Found:</strong> ${visibleCount} wallet(s) over ${formatUsd(MIN_TOTAL_USD)}<br>
-            <strong>Total value of shown wallets:</strong> ${formatUsd(totalVisibleUsd)}<br>
-            <strong>Checked:</strong> ${checkedCount} address(es)<br>
-            <strong>TRX price:</strong> ${formatUsd(prices.trx)}<br>
-            <strong>USDT price:</strong> ${formatUsd(prices.usdt)}
-          `;
-
-          status.innerHTML = `<span class="success">Done.</span>`;
+          tableWrap.style.display = "block";
+          copyBtn.disabled = false;
         } else {
           emptyMessage.style.display = "block";
-
-          summaryBox.style.display = "block";
-          summaryBox.innerHTML = `
-            <strong>Found:</strong> 0 wallet(s) over ${formatUsd(MIN_TOTAL_USD)}<br>
-            <strong>Checked:</strong> ${checkedCount} address(es)<br>
-            <strong>TRX price:</strong> ${formatUsd(prices.trx)}<br>
-            <strong>USDT price:</strong> ${formatUsd(prices.usdt)}
-          `;
-
-          status.innerHTML = `<span class="success">Done.</span>`;
         }
+
+        setStatus("Updated.", "success");
 
       } catch (error) {
         console.error(error);
-        status.innerHTML = `<span class="error">${error.message}</span>`;
+        setStatus(error.message || "Something went wrong.", "error");
+      } finally {
+        checkBtn.disabled = false;
       }
-
-      button.disabled = false;
     }
 
     async function copyValidAddresses() {
       if (validAddresses.length === 0) {
-        alert("No valid addresses to copy.");
+        setStatus("No addresses to copy.", "error");
         return;
       }
 
-      const textToCopy = validAddresses.join("\n");
-
       try {
-        await navigator.clipboard.writeText(textToCopy);
-
-        document.getElementById("status").innerHTML =
-          `<span class="success">Copied ${validAddresses.length} address(es) to clipboard.</span>`;
-
+        await navigator.clipboard.writeText(validAddresses.join("\n"));
+        setStatus(`Copied ${validAddresses.length} address(es).`, "success");
       } catch (error) {
-        alert("Copy failed. Please copy addresses manually from the table.");
+        setStatus("Copy failed. Select addresses manually.", "error");
       }
     }
 
