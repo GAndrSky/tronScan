@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>TRON High Balance Checker</title>
+  <title>TRON Wallets Over $50,000</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
@@ -15,10 +15,16 @@
 
     h1 {
       color: #f59e0b;
+      margin-bottom: 10px;
+    }
+
+    p {
+      line-height: 1.5;
     }
 
     button {
       margin-top: 15px;
+      margin-right: 10px;
       padding: 12px 20px;
       background: #10b981;
       color: white;
@@ -28,9 +34,17 @@
       cursor: pointer;
     }
 
+    button:hover:not(:disabled) {
+      opacity: 0.9;
+    }
+
     button:disabled {
       background: #555;
       cursor: not-allowed;
+    }
+
+    #copyBtn {
+      background: #60a5fa;
     }
 
     table {
@@ -52,10 +66,19 @@
       color: #f59e0b;
     }
 
+    a {
+      color: #60a5fa;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
     .small {
       color: #8b949e;
       font-size: 13px;
-      margin-top: 10px;
+      margin-top: 15px;
     }
 
     .empty {
@@ -70,17 +93,38 @@
     .error {
       color: #ef4444;
     }
+
+    .success {
+      color: #10b981;
+    }
+
+    .summary {
+      margin-top: 20px;
+      padding: 15px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+    }
   </style>
 </head>
 
 <body>
   <h1>TRON Wallets Over $50,000</h1>
 
-  <p>This page checks saved TRON addresses automatically and shows only wallets with total value over $50,000.</p>
+  <p>
+    This page checks saved TRON addresses automatically and shows only wallets
+    with total value over $50,000.
+  </p>
 
   <button id="checkBtn" onclick="checkBalances()">Refresh balances</button>
 
+  <button id="copyBtn" onclick="copyValidAddresses()" disabled>
+    Copy valid addresses
+  </button>
+
   <p class="small" id="status">Loading...</p>
+
+  <div id="summaryBox" class="summary" style="display:none;"></div>
 
   <div id="emptyMessage" class="empty" style="display:none;">
     No saved wallet currently has more than $50,000.
@@ -100,16 +144,8 @@
     <tbody id="results"></tbody>
   </table>
 
-  <script src="https://cdn.jsdelivr.net/npm/buffer@6.0.3/index.min.js"></script>
   <script>
-  window.Buffer = window.buffer.Buffer;
-  </script>
-
-  <script src="https://cdn.jsdelivr.net/npm/tronweb@5.3.2/dist/TronWeb.js"></script>
-
-  <script>
-    const MIN_TOTAL_USD = 50000;
-
+    const MIN_TOTAL_USD = 0;
 
     const WATCHED_ADDRESSES = [
       "TCw2NHiW2krQv6r7d3jyCuoWPZgsci4p9E",
@@ -124,25 +160,37 @@
       "TSMyMBSmnXoTDxDtaXiYGFZRLFXbHD5qV8"
     ];
 
+
     const USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 
-    const TronWebClass = window.TronWeb.default || window.TronWeb;
-
-    const tronWeb = new TronWebClass({
-    fullHost: "https://api.trongrid.io"
-    });
+    let validAddresses = [];
 
     function extractAddress(text) {
       const match = text.match(/T[A-Za-z0-9]{33}/);
       return match ? match[0] : null;
     }
 
+    function formatUsd(value) {
+      return "$" + Number(value).toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    }
+
+    function formatToken(value) {
+      return Number(value).toLocaleString("en-US", {
+        minimumFractionDigits: 6,
+        maximumFractionDigits: 6
+      });
+    }
+
     async function getPrices() {
       const url = "https://api.coingecko.com/api/v3/simple/price?ids=tron,tether&vs_currencies=usd";
+
       const response = await fetch(url);
 
       if (!response.ok) {
-        throw new Error("Cannot load prices from CoinGecko");
+        throw new Error("Cannot load prices from CoinGecko.");
       }
 
       const data = await response.json();
@@ -153,18 +201,156 @@
       };
     }
 
+    async function getWalletFromTronGrid(address) {
+      const url = `https://api.trongrid.io/v1/accounts/${address}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error("TronGrid request failed.");
+      }
+
+      const data = await response.json();
+
+      if (!data.data || data.data.length === 0) {
+        return {
+          trx: 0,
+          usdt: 0
+        };
+      }
+
+      const account = data.data[0];
+
+      const trx = account.balance ? Number(account.balance) / 1_000_000 : 0;
+
+      let usdt = 0;
+
+      if (Array.isArray(account.trc20)) {
+        for (const tokenObj of account.trc20) {
+          if (tokenObj[USDT_CONTRACT] !== undefined) {
+            usdt = Number(tokenObj[USDT_CONTRACT]) / 1_000_000;
+            break;
+          }
+        }
+      }
+
+      return {
+        trx,
+        usdt
+      };
+    }
+
+    async function getWalletFromTronScan(address) {
+      const url = `https://apilist.tronscanapi.com/api/account?address=${address}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error("TronScan request failed.");
+      }
+
+      const data = await response.json();
+
+      const trx = data.balance ? Number(data.balance) / 1_000_000 : 0;
+
+      let usdt = 0;
+
+      const tokenLists = [
+        data.trc20token_balances,
+        data.tokenBalances,
+        data.tokens
+      ];
+
+      for (const list of tokenLists) {
+        if (!Array.isArray(list)) continue;
+
+        for (const token of list) {
+          const tokenAddress =
+            token.tokenId ||
+            token.contract_address ||
+            token.contractAddress ||
+            token.tokenAddress;
+
+          const tokenSymbol =
+            token.tokenAbbr ||
+            token.symbol ||
+            token.tokenName;
+
+          if (
+            tokenAddress === USDT_CONTRACT ||
+            tokenSymbol === "USDT"
+          ) {
+            const rawBalance =
+              token.balance ||
+              token.amount ||
+              token.quantity ||
+              0;
+
+            const decimals =
+              token.tokenDecimal !== undefined
+                ? Number(token.tokenDecimal)
+                : token.decimals !== undefined
+                  ? Number(token.decimals)
+                  : 6;
+
+            usdt = Number(rawBalance) / Math.pow(10, decimals);
+            break;
+          }
+        }
+
+        if (usdt > 0) break;
+      }
+
+      return {
+        trx,
+        usdt
+      };
+    }
+
+    async function getWalletBalance(address) {
+      /*
+        First we try TronGrid.
+        If TronGrid does not return USDT correctly, we try TronScan as fallback.
+      */
+
+      try {
+        const tronGridData = await getWalletFromTronGrid(address);
+
+        if (tronGridData.usdt > 0 || tronGridData.trx > 0) {
+          return tronGridData;
+        }
+      } catch (error) {
+        console.warn("TronGrid failed for", address, error);
+      }
+
+      try {
+        const tronScanData = await getWalletFromTronScan(address);
+        return tronScanData;
+      } catch (error) {
+        console.warn("TronScan failed for", address, error);
+      }
+
+      throw new Error("Could not load wallet data.");
+    }
+
     async function checkBalances() {
       const button = document.getElementById("checkBtn");
+      const copyButton = document.getElementById("copyBtn");
       const status = document.getElementById("status");
       const tbody = document.getElementById("results");
       const table = document.getElementById("resultTable");
       const emptyMessage = document.getElementById("emptyMessage");
+      const summaryBox = document.getElementById("summaryBox");
 
       button.disabled = true;
+      copyButton.disabled = true;
+
       status.textContent = "Checking balances...";
       tbody.innerHTML = "";
       table.style.display = "none";
       emptyMessage.style.display = "none";
+      summaryBox.style.display = "none";
+      summaryBox.innerHTML = "";
+
+      validAddresses = [];
 
       try {
         let addresses = WATCHED_ADDRESSES
@@ -173,56 +359,72 @@
 
         addresses = [...new Set(addresses)];
 
+        console.log("Found addresses:", addresses);
+
         if (addresses.length === 0) {
-          status.textContent = "No valid saved TRON addresses.";
+          status.innerHTML = `<span class="error">No valid saved TRON addresses.</span>`;
           button.disabled = false;
           return;
         }
 
         if (addresses.length > 10) {
-          status.textContent = "Too many addresses. Please keep max 10.";
+          status.innerHTML = `<span class="error">Too many addresses. Please keep max 10.</span>`;
           button.disabled = false;
           return;
         }
 
         const prices = await getPrices();
-        const usdtContract = await tronWeb.contract().at(USDT_CONTRACT);
 
         let visibleCount = 0;
+        let checkedCount = 0;
+        let totalVisibleUsd = 0;
 
         for (const address of addresses) {
-          try {
-            const trxSun = await tronWeb.trx.getBalance(address);
-            const trx = Number(trxSun) / 1_000_000;
+          checkedCount++;
 
-            const usdtRaw = await usdtContract.balanceOf(address).call();
-            const usdt = Number(usdtRaw.toString()) / 1_000_000;
+          try {
+            status.textContent = `Checking ${checkedCount}/${addresses.length}: ${address}`;
+
+            const wallet = await getWalletBalance(address);
+
+            const trx = wallet.trx;
+            const usdt = wallet.usdt;
 
             const trxUsd = trx * prices.trx;
             const usdtUsd = usdt * prices.usdt;
             const totalUsd = trxUsd + usdtUsd;
 
-            // Show only wallets over $50,000
+            console.log(address, {
+              trx,
+              usdt,
+              trxUsd,
+              usdtUsd,
+              totalUsd
+            });
+
             if (totalUsd > MIN_TOTAL_USD) {
               visibleCount++;
+              totalVisibleUsd += totalUsd;
+              validAddresses.push(address);
 
               const row = document.createElement("tr");
 
               row.innerHTML = `
                 <td>
-                  <a href="https://tronscan.org/#/address/${address}" target="_blank" style="color:#60a5fa;">
+                  <a href="https://tronscan.org/#/address/${address}" target="_blank">
                     ${address}
                   </a>
                 </td>
-                <td>${trx.toFixed(6)}</td>
-                <td>$${trxUsd.toFixed(2)}</td>
-                <td>${usdt.toFixed(6)}</td>
-                <td>$${usdtUsd.toFixed(2)}</td>
-                <td><strong>$${totalUsd.toFixed(2)}</strong></td>
+                <td>${formatToken(trx)}</td>
+                <td>${formatUsd(trxUsd)}</td>
+                <td>${formatToken(usdt)}</td>
+                <td>${formatUsd(usdtUsd)}</td>
+                <td><strong>${formatUsd(totalUsd)}</strong></td>
               `;
 
               tbody.appendChild(row);
             }
+
           } catch (error) {
             console.error("Error checking address:", address, error);
           }
@@ -230,20 +432,59 @@
 
         if (visibleCount > 0) {
           table.style.display = "table";
-          status.textContent = `Done. Found ${visibleCount} wallet(s) over $${MIN_TOTAL_USD.toLocaleString()}.`;
+          copyButton.disabled = false;
+
+          summaryBox.style.display = "block";
+          summaryBox.innerHTML = `
+            <strong>Found:</strong> ${visibleCount} wallet(s) over ${formatUsd(MIN_TOTAL_USD)}<br>
+            <strong>Total value of shown wallets:</strong> ${formatUsd(totalVisibleUsd)}<br>
+            <strong>Checked:</strong> ${checkedCount} address(es)<br>
+            <strong>TRX price:</strong> ${formatUsd(prices.trx)}<br>
+            <strong>USDT price:</strong> ${formatUsd(prices.usdt)}
+          `;
+
+          status.innerHTML = `<span class="success">Done.</span>`;
         } else {
           emptyMessage.style.display = "block";
-          status.textContent = "Done.";
+
+          summaryBox.style.display = "block";
+          summaryBox.innerHTML = `
+            <strong>Found:</strong> 0 wallet(s) over ${formatUsd(MIN_TOTAL_USD)}<br>
+            <strong>Checked:</strong> ${checkedCount} address(es)<br>
+            <strong>TRX price:</strong> ${formatUsd(prices.trx)}<br>
+            <strong>USDT price:</strong> ${formatUsd(prices.usdt)}
+          `;
+
+          status.innerHTML = `<span class="success">Done.</span>`;
         }
 
       } catch (error) {
+        console.error(error);
         status.innerHTML = `<span class="error">${error.message}</span>`;
       }
 
       button.disabled = false;
     }
 
-    // Auto-check when page loads
+    async function copyValidAddresses() {
+      if (validAddresses.length === 0) {
+        alert("No valid addresses to copy.");
+        return;
+      }
+
+      const textToCopy = validAddresses.join("\n");
+
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+
+        document.getElementById("status").innerHTML =
+          `<span class="success">Copied ${validAddresses.length} address(es) to clipboard.</span>`;
+
+      } catch (error) {
+        alert("Copy failed. Please copy addresses manually from the table.");
+      }
+    }
+
     window.addEventListener("load", checkBalances);
   </script>
 </body>
