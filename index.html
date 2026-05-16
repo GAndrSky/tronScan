@@ -42,7 +42,7 @@
       justify-content: space-between;
       align-items: flex-start;
       gap: 20px;
-      margin-bottom: 28px;
+      margin-bottom: 24px;
     }
 
     .title-block h1 {
@@ -93,6 +93,40 @@
       background: var(--blue);
     }
 
+    .filter-panel {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 18px;
+    }
+
+    .filter-panel label {
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .filter-panel select,
+    .filter-panel input {
+      background: var(--panel-soft);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .filter-panel select:focus,
+    .filter-panel input:focus {
+      border-color: var(--accent);
+    }
+
     .status {
       margin-bottom: 18px;
       font-size: 14px;
@@ -113,7 +147,7 @@
 
     .cards {
       display: grid;
-      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
       gap: 14px;
       margin-bottom: 24px;
     }
@@ -203,6 +237,12 @@
       font-size: 12px;
     }
 
+    @media (max-width: 1000px) {
+      .cards {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
     @media (max-width: 900px) {
       body {
         padding: 20px;
@@ -210,10 +250,6 @@
 
       .header {
         flex-direction: column;
-      }
-
-      .cards {
-        grid-template-columns: repeat(2, 1fr);
       }
 
       .table-wrap {
@@ -237,6 +273,16 @@
       .actions {
         width: 100%;
       }
+
+      .filter-panel {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .filter-panel select,
+      .filter-panel input {
+        width: 100%;
+      }
     }
   </style>
 </head>
@@ -246,7 +292,7 @@
     <section class="header">
       <div class="title-block">
         <h1>TRON Watchlist</h1>
-        <p>Wallets with TRX + USDT balance above $50,000</p>
+        <p>Track TRX + USDT balances by selected USD threshold</p>
       </div>
 
       <div class="actions">
@@ -258,6 +304,28 @@
           Copy addresses
         </button>
       </div>
+    </section>
+
+    <section class="filter-panel">
+      <label for="thresholdSelect">Show wallets over</label>
+
+      <select id="thresholdSelect">
+        <option value="50000">$50,000</option>
+        <option value="100000">$100,000</option>
+        <option value="250000">$250,000</option>
+        <option value="500000">$500,000</option>
+        <option value="1000000">$1,000,000</option>
+        <option value="custom">Custom</option>
+      </select>
+
+      <input
+        id="customThreshold"
+        type="number"
+        placeholder="Custom USD amount"
+        min="0"
+        step="1000"
+        style="display:none;"
+      />
     </section>
 
     <div id="status" class="status">Loading...</div>
@@ -274,6 +342,11 @@
       </div>
 
       <div class="card">
+        <div class="card-label">Selected threshold</div>
+        <div class="card-value" id="selectedThreshold">$50,000.00</div>
+      </div>
+
+      <div class="card">
         <div class="card-label">TRX price</div>
         <div class="card-value" id="trxPrice">$0.00</div>
       </div>
@@ -285,7 +358,7 @@
     </section>
 
     <div id="emptyMessage" class="empty" style="display:none;">
-      No wallets above $50,000 right now.
+      No wallets above the selected threshold right now.
     </div>
 
     <section id="tableWrap" class="table-wrap" style="display:none;">
@@ -310,8 +383,6 @@
   </main>
 
   <script>
-    const MIN_TOTAL_USD = 50000;
-
     const WATCHED_ADDRESSES = [
       "TCw2NHiW2krQv6r7d3jyCuoWPZgsci4p9E",
       "TQVJdnPiyqZqp4cBy445jofu66a99C2SAZ",
@@ -329,7 +400,7 @@
 
     const REQUEST_DELAY_MS = 1200;
     const REFRESH_COOLDOWN_MS = 60000;
-    const CACHE_KEY = "tron_watchlist_last_result_v1";
+    const CACHE_KEY = "tron_watchlist_last_result_v2";
 
     let validAddresses = [];
     let isChecking = false;
@@ -363,6 +434,28 @@
       status.textContent = message;
       status.className = "status";
       if (type) status.classList.add(type);
+    }
+
+    function getSelectedThreshold() {
+      const select = document.getElementById("thresholdSelect");
+      const customInput = document.getElementById("customThreshold");
+
+      if (select.value === "custom") {
+        const customValue = Number(customInput.value);
+
+        if (!customValue || customValue < 0) {
+          return 0;
+        }
+
+        return customValue;
+      }
+
+      return Number(select.value);
+    }
+
+    function updateEmptyMessage(threshold) {
+      document.getElementById("emptyMessage").textContent =
+        `No wallets above ${formatUsd(threshold)} right now.`;
     }
 
     async function fetchWithRetry(url, options = {}, retries = 3) {
@@ -451,11 +544,15 @@
       validAddresses = [];
 
       const rows = payload.rows || [];
+      const threshold = payload.threshold || getSelectedThreshold();
 
       document.getElementById("matchedCount").textContent = rows.length;
       document.getElementById("totalValue").textContent = formatUsd(payload.totalVisibleUsd || 0);
+      document.getElementById("selectedThreshold").textContent = formatUsd(threshold);
       document.getElementById("trxPrice").textContent = formatUsd(payload.trxPrice || 0);
       document.getElementById("checkedCount").textContent = payload.checkedCount || 0;
+
+      updateEmptyMessage(threshold);
 
       cards.style.display = "grid";
 
@@ -555,6 +652,9 @@
       emptyMessage.style.display = "none";
 
       try {
+        const threshold = getSelectedThreshold();
+        updateEmptyMessage(threshold);
+
         const addresses = getSavedAddresses();
 
         if (addresses.length === 0) {
@@ -589,7 +689,7 @@
             const usdtUsd = usdt * prices.usdt;
             const totalUsd = trxUsd + usdtUsd;
 
-            if (totalUsd > MIN_TOTAL_USD) {
+            if (totalUsd > threshold) {
               totalVisibleUsd += totalUsd;
 
               rows.push({
@@ -618,6 +718,7 @@
           totalVisibleUsd,
           trxPrice: prices.trx,
           usdtPrice: prices.usdt,
+          threshold,
           updatedAt: Date.now()
         };
 
@@ -659,6 +760,24 @@
         setStatus("Copy failed. Select addresses manually.", "error");
       }
     }
+
+    document.getElementById("thresholdSelect").addEventListener("change", function () {
+      const customInput = document.getElementById("customThreshold");
+
+      if (this.value === "custom") {
+        customInput.style.display = "inline-block";
+        customInput.focus();
+      } else {
+        customInput.style.display = "none";
+        customInput.value = "";
+      }
+    });
+
+    document.getElementById("customThreshold").addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        checkBalances(false);
+      }
+    });
 
     window.addEventListener("load", () => checkBalances(true));
   </script>
