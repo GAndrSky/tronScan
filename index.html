@@ -18,6 +18,8 @@
       --blue: #2563eb;
       --red: #ef4444;
       --row-hover: #1b2634;
+      --trx-soft: rgba(16, 185, 129, 0.12);
+      --usdt-soft: rgba(37, 99, 235, 0.13);
     }
 
     * {
@@ -222,6 +224,18 @@
       color: #ffffff;
     }
 
+    .trx-cell {
+      background: var(--trx-soft);
+      color: #8ff0c3;
+      font-weight: 600;
+    }
+
+    .usdt-cell {
+      background: var(--usdt-soft);
+      color: #9cc4ff;
+      font-weight: 600;
+    }
+
     .empty {
       background: var(--panel);
       border: 1px solid var(--border);
@@ -292,16 +306,16 @@
     <section class="header">
       <div class="title-block">
         <h1>TRON Watchlist</h1>
-        <p>Track TRX + USDT balances by selected USD threshold</p>
+        <p>Loaded once, filtered by selected USD threshold</p>
       </div>
 
       <div class="actions">
         <button class="btn-refresh" id="checkBtn" onclick="checkBalances(false)">
-          Refresh
+          Refresh data
         </button>
 
-        <button class="btn-copy" id="copyBtn" onclick="copyValidAddresses()" disabled>
-          Copy addresses
+        <button class="btn-copy" id="copyBtn" onclick="copyVisibleAddresses()" disabled>
+          Copy shown addresses
         </button>
       </div>
     </section>
@@ -313,8 +327,6 @@
         <option value="50000">$50,000</option>
         <option value="100000">$100,000</option>
         <option value="250000">$250,000</option>
-        <option value="500000">$500,000</option>
-        <option value="1000000">$1,000,000</option>
         <option value="custom">Custom</option>
       </select>
 
@@ -332,7 +344,7 @@
 
     <section id="cards" class="cards" style="display:none;">
       <div class="card">
-        <div class="card-label">Matched wallets</div>
+        <div class="card-label">Shown wallets</div>
         <div class="card-value" id="matchedCount">0</div>
       </div>
 
@@ -352,7 +364,7 @@
       </div>
 
       <div class="card">
-        <div class="card-label">Checked addresses</div>
+        <div class="card-label">Loaded addresses</div>
         <div class="card-value" id="checkedCount">0</div>
       </div>
     </section>
@@ -369,7 +381,6 @@
             <th>TRX</th>
             <th>TRX USD</th>
             <th>USDT</th>
-            <th>USDT USD</th>
             <th>Total USD</th>
           </tr>
         </thead>
@@ -378,7 +389,7 @@
     </section>
 
     <div class="footer-note">
-      Tip: do not press Refresh many times in a row. Public TronGrid can temporarily rate-limit requests.
+      Data loads when you open the page. Filter changes do not rescan addresses. Refresh data reloads balances from TronGrid.
     </div>
   </main>
 
@@ -400,11 +411,17 @@
 
     const REQUEST_DELAY_MS = 1200;
     const REFRESH_COOLDOWN_MS = 60000;
-    const CACHE_KEY = "tron_watchlist_last_result_v2";
+    const CACHE_KEY = "tron_watchlist_loaded_data_v3";
 
-    let validAddresses = [];
+    let loadedRows = [];
+    let visibleRows = [];
+    let visibleAddresses = [];
     let isChecking = false;
     let lastManualRefreshTime = 0;
+    let lastPrices = {
+      trx: 0,
+      usdt: 1
+    };
 
     function sleep(ms) {
       return new Promise(resolve => setTimeout(resolve, ms));
@@ -533,7 +550,9 @@
       return addresses;
     }
 
-    function renderResults(payload, fromCache = false) {
+    function applyCurrentFilter(fromCache = false) {
+      const threshold = getSelectedThreshold();
+
       const cards = document.getElementById("cards");
       const tableWrap = document.getElementById("tableWrap");
       const emptyMessage = document.getElementById("emptyMessage");
@@ -541,22 +560,26 @@
       const copyBtn = document.getElementById("copyBtn");
 
       tbody.innerHTML = "";
-      validAddresses = [];
+      visibleRows = [];
+      visibleAddresses = [];
 
-      const rows = payload.rows || [];
-      const threshold = payload.threshold || getSelectedThreshold();
+      visibleRows = loadedRows
+        .filter(item => item.totalUsd > threshold)
+        .sort((a, b) => b.totalUsd - a.totalUsd);
 
-      document.getElementById("matchedCount").textContent = rows.length;
-      document.getElementById("totalValue").textContent = formatUsd(payload.totalVisibleUsd || 0);
+      const totalVisibleUsd = visibleRows.reduce((sum, item) => sum + item.totalUsd, 0);
+
+      document.getElementById("matchedCount").textContent = visibleRows.length;
+      document.getElementById("totalValue").textContent = formatUsd(totalVisibleUsd);
       document.getElementById("selectedThreshold").textContent = formatUsd(threshold);
-      document.getElementById("trxPrice").textContent = formatUsd(payload.trxPrice || 0);
-      document.getElementById("checkedCount").textContent = payload.checkedCount || 0;
+      document.getElementById("trxPrice").textContent = formatUsd(lastPrices.trx || 0);
+      document.getElementById("checkedCount").textContent = loadedRows.length;
 
       updateEmptyMessage(threshold);
 
       cards.style.display = "grid";
 
-      if (rows.length === 0) {
+      if (visibleRows.length === 0) {
         tableWrap.style.display = "none";
         emptyMessage.style.display = "block";
         copyBtn.disabled = true;
@@ -565,8 +588,8 @@
         tableWrap.style.display = "block";
         copyBtn.disabled = false;
 
-        for (const item of rows) {
-          validAddresses.push(item.address);
+        for (const item of visibleRows) {
+          visibleAddresses.push(item.address);
 
           const row = document.createElement("tr");
 
@@ -576,10 +599,9 @@
                 ${item.address}
               </a>
             </td>
-            <td>${formatToken(item.trx)}</td>
+            <td class="trx-cell">${formatToken(item.trx)}</td>
             <td>${formatUsd(item.trxUsd)}</td>
-            <td>${formatToken(item.usdt)}</td>
-            <td>${formatUsd(item.usdtUsd)}</td>
+            <td class="usdt-cell">${formatToken(item.usdt)}</td>
             <td class="money">${formatUsd(item.totalUsd)}</td>
           `;
 
@@ -588,15 +610,16 @@
       }
 
       if (fromCache) {
-        setStatus("Showing last saved result. Refresh later if TronGrid is rate-limiting.", "warning");
+        setStatus("Showing last saved data. Click Refresh data when you want to reload balances.", "warning");
       }
     }
 
-    function saveCache(payload) {
+    function saveCache() {
       try {
         localStorage.setItem(CACHE_KEY, JSON.stringify({
           savedAt: Date.now(),
-          payload
+          loadedRows,
+          lastPrices
         }));
       } catch (error) {
         console.warn("Could not save cache:", error);
@@ -606,12 +629,16 @@
     function loadCache() {
       try {
         const raw = localStorage.getItem(CACHE_KEY);
-        if (!raw) return null;
+        if (!raw) return false;
 
         const parsed = JSON.parse(raw);
-        return parsed.payload || null;
+
+        loadedRows = Array.isArray(parsed.loadedRows) ? parsed.loadedRows : [];
+        lastPrices = parsed.lastPrices || { trx: 0, usdt: 1 };
+
+        return loadedRows.length > 0;
       } catch (error) {
-        return null;
+        return false;
       }
     }
 
@@ -644,17 +671,16 @@
       checkBtn.disabled = true;
       copyBtn.disabled = true;
 
-      validAddresses = [];
-      tbody.innerHTML = "";
+      loadedRows = [];
+      visibleRows = [];
+      visibleAddresses = [];
 
+      tbody.innerHTML = "";
       cards.style.display = "none";
       tableWrap.style.display = "none";
       emptyMessage.style.display = "none";
 
       try {
-        const threshold = getSelectedThreshold();
-        updateEmptyMessage(threshold);
-
         const addresses = getSavedAddresses();
 
         if (addresses.length === 0) {
@@ -669,15 +695,14 @@
 
         setStatus("Loading prices...");
         const prices = await getPrices();
+        lastPrices = prices;
 
-        const rows = [];
         let checkedCount = 0;
         let failedCount = 0;
-        let totalVisibleUsd = 0;
 
         for (const address of addresses) {
           checkedCount++;
-          setStatus(`Checking ${checkedCount}/${addresses.length}`);
+          setStatus(`Loading ${checkedCount}/${addresses.length}`);
 
           try {
             const wallet = await getWalletFromTronGrid(address);
@@ -689,18 +714,15 @@
             const usdtUsd = usdt * prices.usdt;
             const totalUsd = trxUsd + usdtUsd;
 
-            if (totalUsd > threshold) {
-              totalVisibleUsd += totalUsd;
+            loadedRows.push({
+              address,
+              trx,
+              trxUsd,
+              usdt,
+              usdtUsd,
+              totalUsd
+            });
 
-              rows.push({
-                address,
-                trx,
-                trxUsd,
-                usdt,
-                usdtUsd,
-                totalUsd
-              });
-            }
           } catch (error) {
             failedCount++;
             console.warn("Failed address:", address, error);
@@ -709,35 +731,24 @@
           await sleep(REQUEST_DELAY_MS);
         }
 
-        rows.sort((a, b) => b.totalUsd - a.totalUsd);
+        loadedRows.sort((a, b) => b.totalUsd - a.totalUsd);
 
-        const payload = {
-          rows,
-          checkedCount,
-          failedCount,
-          totalVisibleUsd,
-          trxPrice: prices.trx,
-          usdtPrice: prices.usdt,
-          threshold,
-          updatedAt: Date.now()
-        };
-
-        renderResults(payload, false);
-        saveCache(payload);
+        saveCache();
+        applyCurrentFilter(false);
 
         if (failedCount > 0) {
-          setStatus(`Updated with ${failedCount} failed request(s). Try again later if something is missing.`, "warning");
+          setStatus(`Loaded with ${failedCount} failed request(s). Try again later if something is missing.`, "warning");
         } else {
-          setStatus("Updated.", "success");
+          setStatus("Loaded.", "success");
         }
 
       } catch (error) {
         console.error(error);
 
-        const cachedPayload = loadCache();
+        const hasCache = loadCache();
 
-        if (cachedPayload) {
-          renderResults(cachedPayload, true);
+        if (hasCache) {
+          applyCurrentFilter(true);
         } else {
           setStatus(error.message || "Something went wrong.", "error");
         }
@@ -747,15 +758,15 @@
       }
     }
 
-    async function copyValidAddresses() {
-      if (validAddresses.length === 0) {
-        setStatus("No addresses to copy.", "error");
+    async function copyVisibleAddresses() {
+      if (visibleAddresses.length === 0) {
+        setStatus("No shown addresses to copy.", "error");
         return;
       }
 
       try {
-        await navigator.clipboard.writeText(validAddresses.join("\n"));
-        setStatus(`Copied ${validAddresses.length} address(es).`, "success");
+        await navigator.clipboard.writeText(visibleAddresses.join("\n"));
+        setStatus(`Copied ${visibleAddresses.length} shown address(es).`, "success");
       } catch (error) {
         setStatus("Copy failed. Select addresses manually.", "error");
       }
@@ -771,11 +782,23 @@
         customInput.style.display = "none";
         customInput.value = "";
       }
+
+      if (loadedRows.length > 0) {
+        applyCurrentFilter(false);
+        setStatus("Filter applied.", "success");
+      }
+    });
+
+    document.getElementById("customThreshold").addEventListener("input", function () {
+      if (loadedRows.length > 0) {
+        applyCurrentFilter(false);
+      }
     });
 
     document.getElementById("customThreshold").addEventListener("keydown", function (event) {
-      if (event.key === "Enter") {
-        checkBalances(false);
+      if (event.key === "Enter" && loadedRows.length > 0) {
+        applyCurrentFilter(false);
+        setStatus("Filter applied.", "success");
       }
     });
 
