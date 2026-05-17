@@ -107,14 +107,27 @@
       margin-bottom: 18px;
     }
 
-    .filter-panel label {
+    .filter-label {
       color: var(--muted);
       font-size: 14px;
       font-weight: 600;
+      margin-right: 4px;
     }
 
-    .filter-panel select,
-    .filter-panel input {
+    .filter-btn {
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 14px;
+    }
+
+    .filter-btn.active {
+      background: var(--accent);
+      color: #101010;
+      border-color: var(--accent);
+    }
+
+    .custom-input {
       background: var(--panel-soft);
       color: var(--text);
       border: 1px solid var(--border);
@@ -122,10 +135,10 @@
       padding: 10px 12px;
       font-size: 14px;
       outline: none;
+      width: 180px;
     }
 
-    .filter-panel select:focus,
-    .filter-panel input:focus {
+    .custom-input:focus {
       border-color: var(--accent);
     }
 
@@ -149,7 +162,7 @@
 
     .cards {
       display: grid;
-      grid-template-columns: repeat(5, minmax(150px, 1fr));
+      grid-template-columns: repeat(6, minmax(140px, 1fr));
       gap: 14px;
       margin-bottom: 24px;
     }
@@ -168,9 +181,13 @@
     }
 
     .card-value {
-      font-size: 22px;
+      font-size: 21px;
       font-weight: 700;
       letter-spacing: -0.02em;
+    }
+
+    .card-value.small-value {
+      font-size: 18px;
     }
 
     .table-wrap {
@@ -251,9 +268,9 @@
       font-size: 12px;
     }
 
-    @media (max-width: 1000px) {
+    @media (max-width: 1150px) {
       .cards {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(3, 1fr);
       }
     }
 
@@ -271,7 +288,7 @@
       }
     }
 
-    @media (max-width: 520px) {
+    @media (max-width: 620px) {
       .cards {
         grid-template-columns: 1fr;
       }
@@ -293,8 +310,8 @@
         align-items: stretch;
       }
 
-      .filter-panel select,
-      .filter-panel input {
+      .filter-btn,
+      .custom-input {
         width: 100%;
       }
     }
@@ -321,17 +338,31 @@
     </section>
 
     <section class="filter-panel">
-      <label for="thresholdSelect">Show wallets over</label>
+      <span class="filter-label">Show wallets over</span>
 
-      <select id="thresholdSelect">
-        <option value="50000">$50,000</option>
-        <option value="100000">$100,000</option>
-        <option value="250000">$250,000</option>
-        <option value="custom">Custom</option>
-      </select>
+      <button class="filter-btn active" data-threshold="0" onclick="setQuickFilter(this)">
+        All
+      </button>
+
+      <button class="filter-btn" data-threshold="50000" onclick="setQuickFilter(this)">
+        $50k
+      </button>
+
+      <button class="filter-btn" data-threshold="100000" onclick="setQuickFilter(this)">
+        $100k
+      </button>
+
+      <button class="filter-btn" data-threshold="250000" onclick="setQuickFilter(this)">
+        $250k
+      </button>
+
+      <button class="filter-btn" data-threshold="custom" onclick="setQuickFilter(this)">
+        Custom
+      </button>
 
       <input
         id="customThreshold"
+        class="custom-input"
         type="number"
         placeholder="Custom USD amount"
         min="0"
@@ -355,7 +386,7 @@
 
       <div class="card">
         <div class="card-label">Selected threshold</div>
-        <div class="card-value" id="selectedThreshold">$50,000.00</div>
+        <div class="card-value" id="selectedThreshold">All</div>
       </div>
 
       <div class="card">
@@ -366,6 +397,11 @@
       <div class="card">
         <div class="card-label">Loaded addresses</div>
         <div class="card-value" id="checkedCount">0</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">Last updated</div>
+        <div class="card-value small-value" id="lastUpdated">—</div>
       </div>
     </section>
 
@@ -389,7 +425,8 @@
     </section>
 
     <div class="footer-note">
-      Data loads when you open the page. Filter changes do not rescan addresses. Refresh data reloads balances from TronGrid.
+      Data loads when you open the page and auto-refreshes every 10 minutes while the page stays open.
+      Filter changes do not rescan addresses.
     </div>
   </main>
 
@@ -411,13 +448,18 @@
 
     const REQUEST_DELAY_MS = 1200;
     const REFRESH_COOLDOWN_MS = 60000;
-    const CACHE_KEY = "tron_watchlist_loaded_data_v3";
+    const AUTO_REFRESH_MS = 10 * 60 * 1000;
+    const CACHE_KEY = "tron_watchlist_loaded_data_v4";
 
     let loadedRows = [];
     let visibleRows = [];
     let visibleAddresses = [];
     let isChecking = false;
     let lastManualRefreshTime = 0;
+    let currentThreshold = 0;
+    let currentFilterMode = "preset";
+    let lastUpdatedAt = null;
+
     let lastPrices = {
       trx: 0,
       usdt: 1
@@ -446,6 +488,16 @@
       });
     }
 
+    function formatTime(timestamp) {
+      if (!timestamp) return "—";
+
+      return new Date(timestamp).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    }
+
     function setStatus(message, type = "") {
       const status = document.getElementById("status");
       status.textContent = message;
@@ -454,10 +506,8 @@
     }
 
     function getSelectedThreshold() {
-      const select = document.getElementById("thresholdSelect");
-      const customInput = document.getElementById("customThreshold");
-
-      if (select.value === "custom") {
+      if (currentFilterMode === "custom") {
+        const customInput = document.getElementById("customThreshold");
         const customValue = Number(customInput.value);
 
         if (!customValue || customValue < 0) {
@@ -467,12 +517,53 @@
         return customValue;
       }
 
-      return Number(select.value);
+      return currentThreshold;
+    }
+
+    function getThresholdLabel(threshold) {
+      if (threshold === 0) return "All";
+      return formatUsd(threshold);
     }
 
     function updateEmptyMessage(threshold) {
-      document.getElementById("emptyMessage").textContent =
-        `No wallets above ${formatUsd(threshold)} right now.`;
+      if (threshold === 0) {
+        document.getElementById("emptyMessage").textContent =
+          "No loaded wallets to show.";
+      } else {
+        document.getElementById("emptyMessage").textContent =
+          `No wallets above ${formatUsd(threshold)} right now.`;
+      }
+    }
+
+    function setActiveFilterButton(activeButton) {
+      document.querySelectorAll(".filter-btn").forEach(button => {
+        button.classList.remove("active");
+      });
+
+      activeButton.classList.add("active");
+    }
+
+    function setQuickFilter(button) {
+      const value = button.dataset.threshold;
+      const customInput = document.getElementById("customThreshold");
+
+      setActiveFilterButton(button);
+
+      if (value === "custom") {
+        currentFilterMode = "custom";
+        customInput.style.display = "inline-block";
+        customInput.focus();
+      } else {
+        currentFilterMode = "preset";
+        currentThreshold = Number(value);
+        customInput.style.display = "none";
+        customInput.value = "";
+      }
+
+      if (loadedRows.length > 0) {
+        applyCurrentFilter(false);
+        setStatus("Filter applied.", "success");
+      }
     }
 
     async function fetchWithRetry(url, options = {}, retries = 3) {
@@ -571,9 +662,10 @@
 
       document.getElementById("matchedCount").textContent = visibleRows.length;
       document.getElementById("totalValue").textContent = formatUsd(totalVisibleUsd);
-      document.getElementById("selectedThreshold").textContent = formatUsd(threshold);
+      document.getElementById("selectedThreshold").textContent = getThresholdLabel(threshold);
       document.getElementById("trxPrice").textContent = formatUsd(lastPrices.trx || 0);
       document.getElementById("checkedCount").textContent = loadedRows.length;
+      document.getElementById("lastUpdated").textContent = formatTime(lastUpdatedAt);
 
       updateEmptyMessage(threshold);
 
@@ -619,7 +711,8 @@
         localStorage.setItem(CACHE_KEY, JSON.stringify({
           savedAt: Date.now(),
           loadedRows,
-          lastPrices
+          lastPrices,
+          lastUpdatedAt
         }));
       } catch (error) {
         console.warn("Could not save cache:", error);
@@ -635,6 +728,7 @@
 
         loadedRows = Array.isArray(parsed.loadedRows) ? parsed.loadedRows : [];
         lastPrices = parsed.lastPrices || { trx: 0, usdt: 1 };
+        lastUpdatedAt = parsed.lastUpdatedAt || parsed.savedAt || null;
 
         return loadedRows.length > 0;
       } catch (error) {
@@ -642,21 +736,23 @@
       }
     }
 
-    async function checkBalances(isInitialLoad = false) {
+    async function checkBalances(isInitialLoad = false, isAutoRefresh = false) {
       if (isChecking) {
-        setStatus("Already checking. Please wait.", "warning");
+        if (!isAutoRefresh) {
+          setStatus("Already checking. Please wait.", "warning");
+        }
         return;
       }
 
       const now = Date.now();
 
-      if (!isInitialLoad && now - lastManualRefreshTime < REFRESH_COOLDOWN_MS) {
+      if (!isInitialLoad && !isAutoRefresh && now - lastManualRefreshTime < REFRESH_COOLDOWN_MS) {
         const secondsLeft = Math.ceil((REFRESH_COOLDOWN_MS - (now - lastManualRefreshTime)) / 1000);
         setStatus(`Please wait ${secondsLeft}s before refreshing again.`, "warning");
         return;
       }
 
-      if (!isInitialLoad) {
+      if (!isInitialLoad && !isAutoRefresh) {
         lastManualRefreshTime = now;
       }
 
@@ -693,7 +789,7 @@
           return;
         }
 
-        setStatus("Loading prices...");
+        setStatus(isAutoRefresh ? "Auto-refresh: loading prices..." : "Loading prices...");
         const prices = await getPrices();
         lastPrices = prices;
 
@@ -702,7 +798,7 @@
 
         for (const address of addresses) {
           checkedCount++;
-          setStatus(`Loading ${checkedCount}/${addresses.length}`);
+          setStatus(`${isAutoRefresh ? "Auto-refresh" : "Loading"} ${checkedCount}/${addresses.length}`);
 
           try {
             const wallet = await getWalletFromTronGrid(address);
@@ -732,6 +828,7 @@
         }
 
         loadedRows.sort((a, b) => b.totalUsd - a.totalUsd);
+        lastUpdatedAt = Date.now();
 
         saveCache();
         applyCurrentFilter(false);
@@ -739,7 +836,7 @@
         if (failedCount > 0) {
           setStatus(`Loaded with ${failedCount} failed request(s). Try again later if something is missing.`, "warning");
         } else {
-          setStatus("Loaded.", "success");
+          setStatus(isAutoRefresh ? "Auto-refreshed." : "Loaded.", "success");
         }
 
       } catch (error) {
@@ -772,23 +869,6 @@
       }
     }
 
-    document.getElementById("thresholdSelect").addEventListener("change", function () {
-      const customInput = document.getElementById("customThreshold");
-
-      if (this.value === "custom") {
-        customInput.style.display = "inline-block";
-        customInput.focus();
-      } else {
-        customInput.style.display = "none";
-        customInput.value = "";
-      }
-
-      if (loadedRows.length > 0) {
-        applyCurrentFilter(false);
-        setStatus("Filter applied.", "success");
-      }
-    });
-
     document.getElementById("customThreshold").addEventListener("input", function () {
       if (loadedRows.length > 0) {
         applyCurrentFilter(false);
@@ -802,7 +882,13 @@
       }
     });
 
-    window.addEventListener("load", () => checkBalances(true));
+    window.addEventListener("load", () => {
+      checkBalances(true);
+
+      setInterval(() => {
+        checkBalances(false, true);
+      }, AUTO_REFRESH_MS);
+    });
   </script>
 </body>
 </html>
